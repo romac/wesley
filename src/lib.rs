@@ -12,11 +12,13 @@ pub mod body;
 pub mod codec;
 pub mod connection;
 pub mod frame;
+pub mod message;
 
 pub use body::Body;
 pub use codec::FrameCodec;
 pub use connection::Connection;
 pub use frame::{Frame, FrameHeader, Opcode};
+pub use message::Message;
 
 #[tracing::instrument(skip(stream))]
 pub async fn accept(mut stream: TcpStream, addr: SocketAddr) -> Result<Connection> {

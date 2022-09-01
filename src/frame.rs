@@ -1,6 +1,6 @@
 use deku::prelude::*;
 
-#[derive(Debug, PartialEq, Eq, DekuRead, DekuWrite)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, DekuRead, DekuWrite)]
 #[deku(endian = "big")]
 pub struct Frame {
     pub header: FrameHeader,
@@ -32,7 +32,7 @@ impl Frame {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, DekuRead, DekuWrite)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, DekuRead, DekuWrite)]
 #[deku(endian = "endian", ctx = "endian: deku::ctx::Endian")]
 pub struct FrameHeader {
     #[deku(bits = 1)]
@@ -68,7 +68,7 @@ fn unmask(mut data: Vec<u8>, masking_key: Option<u32>) -> Result<Vec<u8>, DekuEr
     }
 }
 
-#[derive(Debug, PartialEq, Eq, DekuRead, DekuWrite)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, DekuRead, DekuWrite)]
 #[deku(
     type = "u8",
     bits = 4,

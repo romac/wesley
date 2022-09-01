@@ -3,7 +3,7 @@ use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::{prelude::*, EnvFilter};
 
-use wesley::{Connection, Frame, Opcode};
+use wesley::{message::Message, Connection, Frame};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -35,16 +35,23 @@ async fn main() -> Result<()> {
 
 #[tracing::instrument(skip(conn))]
 async fn process(mut conn: Connection) {
-    loop {
-        if let Some(Ok(frame)) = conn.read_frame().await {
-            dbg!(&frame);
+    while let Some(Ok(frame)) = conn.read_frame().await {
+        dbg!(&frame);
 
-            let _ = conn.write_frame(&Frame::text("Hello, sir!")).await;
+        let msg = Message::from_frame(frame).unwrap();
+        dbg!(&msg);
 
-            if frame.header.opcode == Opcode::ConnectionClose {
-                info!("Connection closed");
+        match msg {
+            Message::Text(text) => {
+                conn.write_frame(&Frame::text(&format!("Hello, {text}!")))
+                    .await
+                    .unwrap();
+            }
+            Message::Close(code, reason) => {
+                info!("Connection closed ({code}): {reason:?}");
                 return;
             }
+            _ => {}
         }
     }
 }
