@@ -68,16 +68,15 @@ async fn process(mut conn: Connection) {
     }
 }
 
-#[tracing::instrument(skip(stream))]
-async fn accept(mut stream: TcpStream, addr: SocketAddr) -> Result<Connection> {
-    info!("Accepted incoming connection from {addr}");
-
+async fn read_http_request(stream: &mut TcpStream) -> Result<String> {
     let mut incoming = vec![];
 
     loop {
         let mut buf = vec![0u8; 1024];
         let read = stream.read(&mut buf).await?;
+
         debug!("Read {read} bytes");
+
         incoming.extend_from_slice(&buf[..read]);
 
         if read == 0 || incoming.len() > 4 && &incoming[incoming.len() - 4..] == b"\r\n\r\n" {
@@ -85,10 +84,18 @@ async fn accept(mut stream: TcpStream, addr: SocketAddr) -> Result<Connection> {
         }
     }
 
-    let incoming = std::str::from_utf8(&incoming)?;
+    let text = String::from_utf8(incoming)?;
+    Ok(text)
+}
+
+#[tracing::instrument(skip(stream))]
+async fn accept(mut stream: TcpStream, addr: SocketAddr) -> Result<Connection> {
+    info!("Accepted incoming connection from {addr}");
+
+    let incoming = read_http_request(&mut stream).await?;
     debug!("Got HTTP request:\n{incoming}");
 
-    let request = parse_http_request(incoming)?;
+    let request = parse_http_request(&incoming)?;
     debug!("Parsed HTTP request:\n{request:#?}");
 
     if let Err(e) = upgrade_connection(&mut stream, request).await {
