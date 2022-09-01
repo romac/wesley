@@ -142,6 +142,14 @@ impl Connection {
 
         match Frame::from_bytes((buf, self.offset)) {
             Ok(((remaining, offset), frame)) => {
+                // dbg!(
+                //     self.buffer.capacity(),
+                //     offset,
+                //     len,
+                //     remaining.len(),
+                //     len - remaining.len()
+                // );
+
                 self.offset = offset;
                 self.buffer.advance(len - remaining.len());
 
@@ -149,7 +157,7 @@ impl Connection {
             }
             Err(DekuError::Incomplete(need_size)) => {
                 debug!(
-                    "need {} more bytes and {} more bits",
+                    "Incomplete frame, need {} more bytes and {} more bits",
                     need_size.byte_size(),
                     need_size.bit_size()
                 );
