@@ -58,6 +58,8 @@ async fn process(mut conn: Connection) {
         if let Ok(Some(frame)) = conn.read_frame().await {
             dbg!(&frame);
 
+            let _ = conn.write_frame(&Frame::text("Hello, sir!")).await;
+
             if frame.header.opcode == Opcode::ConnectionClose {
                 info!("Connection closed");
                 return;
@@ -170,7 +172,10 @@ impl Connection {
 
     pub async fn write_frame(&mut self, frame: &Frame) -> Result<()> {
         let bytes = frame.to_bytes()?;
+
         self.stream.write_all(bytes.as_slice()).await?;
+        self.stream.flush().await?;
+
         Ok(())
     }
 }
@@ -340,6 +345,26 @@ pub struct Frame {
         map = "|data: Vec<u8>| -> Result<_, DekuError>  { unmask(data, header.masking_key) }"
     )]
     pub payload_data: Vec<u8>,
+}
+
+impl Frame {
+    pub fn text(text: &str) -> Self {
+        Self {
+            header: FrameHeader {
+                fin: true,
+                rsv1: false,
+                rsv2: false,
+                rsv3: false,
+                opcode: Opcode::TextFrame,
+                mask: false,
+                payload_len: text.as_bytes().len() as u8,
+                extended_payload_len_16: None,
+                extended_payload_len_64: None,
+                masking_key: None,
+            },
+            payload_data: text.as_bytes().to_vec(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, DekuRead, DekuWrite)]
