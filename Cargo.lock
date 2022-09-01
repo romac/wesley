@@ -764,6 +764,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "base64",
+ "bytes",
  "color-eyre",
  "deku",
  "http",

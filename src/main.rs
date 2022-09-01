@@ -3,9 +3,12 @@
 use std::fmt::Arguments;
 use std::fmt::Debug;
 use std::future::Future;
+use std::io::Cursor;
 use std::net::SocketAddr;
 
 use async_trait::async_trait;
+use bytes::Buf;
+use bytes::BytesMut;
 use color_eyre::eyre::eyre;
 use color_eyre::eyre::Result;
 use http::HeaderValue;
@@ -37,15 +40,34 @@ async fn main() -> Result<()> {
         let (socket, addr) = listener.accept().await?;
 
         tokio::spawn(async move {
-            if let Err(e) = handle_connection(socket, addr).await {
-                tracing::error!("Failed when processing incoming connection: {e:?}");
+            match accept(socket, addr).await {
+                Ok(conn) => {
+                    process(conn).await;
+                }
+                Err(e) => {
+                    tracing::error!("Failed when processing incoming connection: {e:?}");
+                }
             }
         });
     }
 }
 
+#[tracing::instrument(skip(conn))]
+async fn process(mut conn: Connection) {
+    loop {
+        if let Ok(Some(frame)) = conn.read_frame().await {
+            dbg!(&frame);
+
+            if frame.header.opcode == Opcode::ConnectionClose {
+                info!("Connection closed");
+                return;
+            }
+        }
+    }
+}
+
 #[tracing::instrument(skip(stream))]
-async fn handle_connection(mut stream: TcpStream, addr: SocketAddr) -> Result<()> {
+async fn accept(mut stream: TcpStream, addr: SocketAddr) -> Result<Connection> {
     info!("Accepted incoming connection from {addr}");
 
     let mut incoming = vec![];
@@ -71,44 +93,78 @@ async fn handle_connection(mut stream: TcpStream, addr: SocketAddr) -> Result<()
         warn!("Invalid WebSocket opening handshake: {e}");
 
         let response = Response::builder().status(500).body(e.to_string())?;
-        return send_response(&mut stream, response).await;
+        send_response(&mut stream, response).await?;
+        return Err(eyre!("Not a WebSocket connection"));
     }
 
-    handle_websocket(&mut stream).await?;
-
-    info!("Closing connection for {addr}");
-
-    Ok(())
+    Ok(Connection::new(stream))
 }
 
-#[tracing::instrument(skip(stream))]
-async fn handle_websocket(stream: &mut TcpStream) -> Result<()> {
-    info!("Handling WebSocket stream");
+pub struct Connection {
+    stream: TcpStream,
+    buffer: BytesMut,
+    offset: usize,
+}
 
-    let mut incoming = vec![];
-    loop {
-        let mut buf = vec![0u8; 1024];
-        let read = stream.read(&mut buf).await?;
-        debug!("Read {read} bytes: {:?}", &buf[..read]);
-        incoming.extend_from_slice(&buf[..read]);
-
-        // dbg!(&incoming);
-        // let ((remaining, offset), frame) = FrameHeader::from_bytes((incoming.as_slice(), 0))?;
-        // dbg!(remaining, offset, frame);
-
-        let frame = Frame::try_from(incoming.as_slice())?;
-        dbg!(frame);
-
-        incoming.clear();
-
-        if read == 0 {
-            break;
+impl Connection {
+    pub fn new(stream: TcpStream) -> Self {
+        Self {
+            stream,
+            buffer: BytesMut::with_capacity(4096),
+            offset: 0,
         }
     }
 
-    info!("Finished handling WebSocket");
+    pub async fn read_frame(&mut self) -> Result<Option<Frame>> {
+        loop {
+            // Attempt to parse a frame from the buffered data. If
+            // enough data has been buffered, the frame is
+            // returned.
+            if let Some(frame) = self.parse_frame()? {
+                return Ok(Some(frame));
+            }
 
-    Ok(())
+            let read = self.stream.read_buf(&mut self.buffer).await?;
+
+            if read == 0 {
+                if self.buffer.is_empty() {
+                    return Ok(None);
+                } else {
+                    return Err(eyre!("connection reset by peer"));
+                }
+            }
+        }
+    }
+
+    fn parse_frame(&mut self) -> Result<Option<Frame>> {
+        let len = self.buffer.remaining();
+        let buf = &self.buffer[..];
+
+        match Frame::from_bytes((buf, self.offset)) {
+            Ok(((remaining, offset), frame)) => {
+                self.offset = offset;
+                self.buffer.advance(len - remaining.len());
+
+                Ok(Some(frame))
+            }
+            Err(DekuError::Incomplete(need_size)) => {
+                debug!(
+                    "need {} more bytes and {} more bits",
+                    need_size.byte_size(),
+                    need_size.bit_size()
+                );
+
+                Ok(None)
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub async fn write_frame(&mut self, frame: &Frame) -> Result<()> {
+        let bytes = frame.to_bytes()?;
+        self.stream.write_all(bytes.as_slice()).await?;
+        Ok(())
+    }
 }
 
 #[tracing::instrument(skip(stream, request))]
