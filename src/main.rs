@@ -2,6 +2,7 @@ use color_eyre::eyre::Result;
 use tokio::net::TcpListener;
 use tracing::info;
 use tracing_subscriber::{prelude::*, EnvFilter};
+
 use wesley::{Connection, Frame, Opcode};
 
 #[tokio::main]
@@ -35,7 +36,7 @@ async fn main() -> Result<()> {
 #[tracing::instrument(skip(conn))]
 async fn process(mut conn: Connection) {
     loop {
-        if let Ok(Some(frame)) = conn.read_frame().await {
+        if let Some(Ok(frame)) = conn.read_frame().await {
             dbg!(&frame);
 
             let _ = conn.write_frame(&Frame::text("Hello, sir!")).await;
