@@ -21,19 +21,20 @@ impl Message {
             Opcode::BinaryFrame => Ok(Self::Binary(frame.payload_data)),
             Opcode::Ping => Ok(Self::Ping(frame.payload_data)),
             Opcode::Pong => Ok(Self::Pong(frame.payload_data)),
-            Opcode::ConnectionClose => {
-                let mut body = frame.payload_data;
-                if body.len() < 2 {
-                    Ok(Self::Close(1000, None))
-                } else {
-                    let code = u16::from_be_bytes(body[0..2].try_into()?);
-                    let reason = String::from_utf8(body.split_off(2))?;
-                    Ok(Self::Close(code, Some(reason)))
-                }
-            }
+            Opcode::ConnectionClose => Self::connection_close(frame.payload_data),
             Opcode::ReservedNonControl => Ok(Self::Frame(frame)),
             Opcode::ReservedControl => Ok(Self::Frame(frame)),
             Opcode::ContinuationFrame => Ok(Self::Frame(frame)),
+        }
+    }
+
+    pub fn connection_close(mut body: Vec<u8>) -> Result<Self> {
+        if body.len() < 2 {
+            Ok(Self::Close(1000, None))
+        } else {
+            let code = u16::from_be_bytes(body[0..2].try_into()?);
+            let reason = String::from_utf8(body.split_off(2))?;
+            Ok(Self::Close(code, Some(reason)))
         }
     }
 }
